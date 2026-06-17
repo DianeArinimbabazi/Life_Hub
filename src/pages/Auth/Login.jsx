@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import supabase from '../../supabaseClient';
 
@@ -10,6 +10,12 @@ function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) navigate('/dashboard');
+    });
+  }, [navigate]);
 
   const signInWithProvider = async (provider) => {
     await supabase.auth.signInWithOAuth({
@@ -26,9 +32,6 @@ function Login() {
     const { data, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (signInError) {
-      if (signInError.message.toLowerCase().includes('email not confirmed')) {
-        return setError('Please confirm your email before signing in. Check your inbox.');
-      }
       return setError(signInError.message);
     }
     if (data.session) navigate('/dashboard');
@@ -36,7 +39,6 @@ function Login() {
 
   return (
     <div className="bg-[#0d1117] min-h-screen text-white flex">
-      {/* Left Side - Image */}
       <div className="hidden md:flex w-1/2 relative overflow-hidden">
         <img
           src="https://images.unsplash.com/photo-1486312338219-ce68d2c6f44d?w=800&q=80"
@@ -45,7 +47,11 @@ function Login() {
         />
         <div className="absolute inset-0 bg-black bg-opacity-50 flex flex-col justify-end p-12">
           <div className="flex items-center gap-2 mb-8">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg"></div>
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+              </svg>
+            </div>
             <span className="text-white font-bold text-xl">Life Hub</span>
           </div>
           <h2 className="text-3xl font-bold text-white mb-4">Master your time,<br />Cultivate your future.</h2>
@@ -53,7 +59,6 @@ function Login() {
         </div>
       </div>
 
-      {/* Right Side - Form */}
       <div className="w-full md:w-1/2 flex items-center justify-center px-8">
         <div className="w-full max-w-md">
           <h2 className="text-2xl font-bold mb-2">Welcome back</h2>
@@ -118,7 +123,6 @@ function Login() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            {/* Google Button */}
             <button onClick={() => signInWithProvider('google')} className="flex items-center justify-center gap-2 border border-gray-700 rounded-lg py-3 text-sm text-gray-300 hover:border-gray-500 transition">
               <svg width="18" height="18" viewBox="0 0 48 48">
                 <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
@@ -129,8 +133,6 @@ function Login() {
               </svg>
               Google
             </button>
-
-            {/* GitHub Button */}
             <button onClick={() => signInWithProvider('github')} className="flex items-center justify-center gap-2 border border-gray-700 rounded-lg py-3 text-sm text-gray-300 hover:border-gray-500 transition">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
                 <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>

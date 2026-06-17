@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import supabase from '../../supabaseClient';
 
@@ -14,6 +14,12 @@ function Register() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) navigate('/dashboard');
+    });
+  }, [navigate]);
+
   const signInWithProvider = async (provider) => {
     await supabase.auth.signInWithOAuth({
       provider,
@@ -28,14 +34,20 @@ function Register() {
     if (password !== confirm) return setError('Passwords do not match.');
     if (!agreed) return setError('Please agree to the Terms of Service.');
     setLoading(true);
-    const { error: signUpError } = await supabase.auth.signUp({
+    const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
       options: { data: { full_name: name } },
     });
     setLoading(false);
     if (signUpError) return setError(signUpError.message);
-    navigate('/login');
+    
+    // If confirmation is off, Supabase returns a session immediately
+    if (data?.session) {
+      navigate('/dashboard');
+    } else {
+      navigate('/login');
+    }
   };
 
   return (
@@ -122,10 +134,7 @@ function Register() {
                 placeholder="••••••••"
                 className="w-full bg-[#161b22] border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 transition"
               />
-              <button
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-3 text-gray-500 hover:text-white transition text-sm"
-              >
+              <button onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-3 text-gray-500 hover:text-white transition text-sm">
                 {showPassword ? 'Hide' : 'Show'}
               </button>
             </div>
@@ -140,22 +149,13 @@ function Register() {
                 placeholder="••••••••"
                 className="w-full bg-[#161b22] border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 transition"
               />
-              <button
-                onClick={() => setShowConfirm(!showConfirm)}
-                className="absolute right-3 top-3 text-gray-500 hover:text-white transition text-sm"
-              >
+              <button onClick={() => setShowConfirm(!showConfirm)} className="absolute right-3 top-3 text-gray-500 hover:text-white transition text-sm">
                 {showConfirm ? 'Hide' : 'Show'}
               </button>
             </div>
           </div>
           <div className="flex items-start gap-2">
-            <input
-              type="checkbox"
-              id="terms"
-              checked={agreed}
-              onChange={(e) => setAgreed(e.target.checked)}
-              className="w-4 h-4 mt-1"
-            />
+            <input type="checkbox" id="terms" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="w-4 h-4 mt-1" />
             <label htmlFor="terms" className="text-sm text-gray-400">
               I agree to the{' '}
               <Link to="/terms" className="text-blue-400 hover:text-blue-300 transition">Terms of Service</Link>

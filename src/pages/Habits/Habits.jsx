@@ -1,14 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import toast from 'react-hot-toast';
 import Sidebar from '../../components/Sidebar';
-
-const initialHabits = [
-  { id: 1, name: 'Morning Meditation', category: 'Mindfulness', goal: 'Daily', streak: 12, strength: 92, days: [1,1,1,1,1,1,0], last: 'Today, 7:30 AM' },
-  { id: 2, name: 'Hydration (2L)', category: 'Health', goal: 'Daily', streak: 5, strength: 75, days: [1,1,1,1,1,0,0], last: 'Today, 2:15 PM' },
-  { id: 3, name: 'Evening Reading', category: 'Learning', goal: 'Daily', streak: 24, strength: 100, days: [1,1,1,1,1,1,1], last: 'Yesterday' },
-  { id: 4, name: 'Strength Training', category: 'Fitness', goal: '3x Weekly', streak: 3, strength: 88, days: [1,0,1,0,1,0,0], last: 'Yesterday' },
-  { id: 5, name: 'Code Practice', category: 'Career', goal: 'Daily', streak: 8, strength: 95, days: [1,1,1,1,1,0,0], last: 'Today, 10:00 AM' },
-  { id: 6, name: 'Journaling', category: 'Personal', goal: 'Daily', streak: 0, strength: 40, days: [1,0,0,1,0,0,0], last: '3 days ago' },
-];
+import supabase from '../../supabaseClient';
 
 const categoryColor = (cat) => {
   const colors = {
@@ -25,115 +18,163 @@ const categoryColor = (cat) => {
 const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 function Habits() {
-  const [habits, setHabits] = useState(initialHabits);
+  const [habits, setHabits] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [newHabit, setNewHabit] = useState({ name: '', category: 'Health', goal: 'Daily' });
+  const isSaving = useRef(false);
 
-  const addHabit = () => {
-    if (!newHabit.name) return;
-    const habit = { ...newHabit, id: Date.now(), streak: 0, strength: 0, days: [0,0,0,0,0,0,0], last: 'Never' };
-    setHabits([...habits, habit]);
-    setShowModal(false);
-    setNewHabit({ name: '', category: 'Health', goal: 'Daily' });
+  useEffect(() => {
+    fetchHabits();
+  }, []);
+
+  const fetchHabits = async () => {
+    const { data, error } = await supabase.from('habits').select('*').order('created_at', { ascending: false });
+    if (!error) setHabits(data);
+    setLoading(false);
   };
 
-  const checkIn = (id) => {
-    setHabits(habits.map(h => {
-      if (h.id === id) {
-        const newDays = [...h.days];
-        newDays[0] = newDays[0] ? 0 : 1;
-        return { ...h, days: newDays, streak: newDays[0] ? h.streak + 1 : h.streak - 1 };
+  const saveHabit = async () => {
+    if (!newHabit.name || isSaving.current) return;
+    isSaving.current = true;
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (isEditing && newHabit.id) {
+      const { error } = await supabase.from('habits').update({ 
+        name: newHabit.name,
+        category: newHabit.category,
+        goal: newHabit.goal
+      }).eq('id', newHabit.id);
+      if (!error) {
+        await fetchHabits();
+        toast.success('Habit updated');
+      } else {
+        toast.error('Failed to update habit');
       }
-      return h;
-    }));
+    } else {
+      const { error } = await supabase.from('habits').insert({ 
+        ...newHabit, 
+        user_id: user.id, 
+        streak: 0, 
+        strength: 0 
+      });
+      if (!error) {
+        await fetchHabits();
+        toast.success('New habit added');
+      } else {
+        toast.error('Failed to add habit');
+      }
+    }
+
+    setShowModal(false);
+    setIsEditing(false);
+    setNewHabit({ name: '', category: 'Health', goal: 'Daily' });
+    isSaving.current = false;
   };
 
-  const topPerformer = [...habits].sort((a, b) => b.streak - a.streak)[0];
-  const weeklyConsistency = Math.round(habits.reduce((acc, h) => acc + h.strength, 0) / habits.length);
+  const deleteHabit = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this habit? All progress will be lost.')) return;
+    const { error } = await supabase.from('habits').delete().eq('id', id);
+    if (!error) {
+      await fetchHabits();
+      toast.success('Habit removed');
+    } else {
+      toast.error('Failed to remove habit');
+    }
+  };
+
+  const openEditModal = (habit) => {
+    setNewHabit(habit);
+    setIsEditing(true);
+    setShowModal(true);
+  };
+
+  const checkIn = async (habit) => {
+    const newStreak = habit.streak + 1;
+    const newStrength = Math.min(100, habit.strength + 5);
+    const { error } = await supabase.from('habits').update({ streak: newStreak, strength: newStrength }).eq('id', habit.id);
+    if (!error) {
+      fetchHabits();
+      toast.success('Momentum +1! 🔥', { icon: '🔥' });
+    }
+  };
+
+  const topPerformer = habits.length > 0 ? [...habits].sort((a, b) => b.streak - a.streak)[0] : null;
+  const weeklyConsistency = habits.length > 0 ? Math.round(habits.reduce((acc, h) => acc + h.strength, 0) / habits.length) : 0;
 
   return (
-    <div className="bg-[#0d1117] min-h-screen text-white flex">
+    <div className="bg-[#0d1117] min-h-screen text-white flex flex-col md:flex-row">
       <Sidebar />
 
-      <div className="ml-56 flex-1 p-6">
-
-        {/* Top Bar */}
-        <div className="flex items-center justify-between mb-6">
+      <div className="md:ml-56 flex-1 p-4 md:p-6 pt-16 md:pt-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-2xl font-bold">My Momentum</h1>
-            <p className="text-gray-400 text-sm mt-1">You are on a 12-day meditation streak. Keep it going!</p>
+            <h1 className="text-xl md:text-2xl font-bold">My Momentum</h1>
+            <p className="text-gray-400 text-xs md:text-sm mt-1">Track your daily habits and build streaks.</p>
           </div>
           <div className="flex items-center gap-3">
-            <div className="bg-[#161b22] border border-gray-800 rounded-lg px-4 py-2">
-              <input
-                type="text"
-                placeholder="Search habits..."
-                className="bg-transparent text-white text-sm w-40 focus:outline-none placeholder-gray-600"
-              />
+            <div className="hidden sm:block bg-[#161b22] border border-gray-800 rounded-lg px-4 py-2">
+              <input type="text" placeholder="Search habits..." className="bg-transparent text-white text-sm w-32 md:w-40 focus:outline-none placeholder-gray-600" />
             </div>
-            <button onClick={() => setShowModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition">
+            <button onClick={() => { setIsEditing(false); setNewHabit({ name: '', category: 'Health', goal: 'Daily' }); setShowModal(true); }} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs md:text-sm font-semibold transition whitespace-nowrap">
               + New Habit
             </button>
           </div>
         </div>
 
-        {/* Main Grid */}
-        <div className="flex gap-6">
-
-          {/* Habits Cards + Chart */}
-          <div className="flex-1">
-
-            {/* Habit Cards Grid */}
-            <div className="grid grid-cols-3 gap-4 mb-6">
-              {habits.map((habit) => (
-                <div key={habit.id} className="bg-[#161b22] border border-gray-800 rounded-2xl p-4 hover:border-gray-600 transition">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${categoryColor(habit.category)}`}>{habit.category}</span>
-                    <button className="text-gray-600 hover:text-gray-400 text-lg">⋯</button>
+        <div className="flex flex-col lg:flex-row gap-6">
+          <div className="flex-1 min-w-0">
+            {loading ? (
+              <p className="text-gray-500 text-center mt-20">Loading habits...</p>
+            ) : habits.length === 0 ? (
+              <div className="text-center mt-20">
+                <p className="text-gray-400 text-lg font-semibold">No habits yet</p>
+                <p className="text-gray-600 text-sm mt-2">Click "+ New Habit" to start tracking</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                {habits.map((habit) => (
+                  <div key={habit.id} className="bg-[#161b22] border border-gray-800 rounded-2xl p-4 hover:border-gray-600 transition group relative">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${categoryColor(habit.category)}`}>{habit.category}</span>
+                      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition">
+                        <button onClick={() => openEditModal(habit)} className="text-gray-500 hover:text-blue-400 text-xs" title="Edit habit">✎</button>
+                        <button onClick={() => deleteHabit(habit.id)} className="text-gray-500 hover:text-red-400 text-xs" title="Delete habit">🗑</button>
+                      </div>
+                    </div>
+                    <h3 className="text-white font-semibold text-sm mb-1">{habit.name}</h3>
+                    <p className="text-gray-500 text-xs mb-3">Goal: {habit.goal}</p>
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-orange-400 text-sm">🔥</span>
+                      <span className="text-white font-bold text-lg">{habit.streak}</span>
+                      <span className="text-gray-400 text-xs uppercase">Day Streak</span>
+                    </div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-gray-500 text-xs uppercase">Strength</span>
+                      <span className="text-gray-400 text-xs">{habit.strength}%</span>
+                    </div>
+                    <div className="w-full bg-gray-700 rounded-full h-1.5 mb-3">
+                      <div className="bg-blue-500 h-1.5 rounded-full transition-all" style={{ width: `${habit.strength}%` }}></div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-500 text-xs">Keep going!</span>
+                      <button onClick={() => checkIn(habit)} className="text-blue-400 text-xs hover:text-blue-300 transition">
+                        Check in →
+                      </button>
+                    </div>
                   </div>
-                  <h3 className="text-white font-semibold text-sm mb-1">{habit.name}</h3>
-                  <p className="text-gray-500 text-xs mb-3">Goal: {habit.goal}</p>
+                ))}
+              </div>
+            )}
 
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="text-orange-400 text-sm">🔥</span>
-                    <span className="text-white font-bold text-lg">{habit.streak}</span>
-                    <span className="text-gray-400 text-xs uppercase">Day Streak</span>
-                  </div>
-
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-gray-500 text-xs uppercase">7-Day Progress</span>
-                    <span className="text-gray-400 text-xs">{habit.strength}% Strength</span>
-                  </div>
-                  <div className="flex gap-1 mb-3">
-                    {habit.days.map((done, i) => (
-                      <div key={i} className={`w-5 h-5 rounded-full ${done ? 'bg-blue-500' : 'bg-gray-700'}`}></div>
-                    ))}
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-500 text-xs">Last: {habit.last}</span>
-                    <button
-                      onClick={() => checkIn(habit.id)}
-                      className="text-blue-400 text-xs hover:text-blue-300 transition"
-                    >
-                      Check in →
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Weekly Consistency Chart */}
             <div className="bg-[#161b22] border border-gray-800 rounded-2xl p-5">
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="text-white font-semibold">Weekly Consistency</h3>
-                  <p className="text-gray-500 text-xs">Average completion rate across all habits</p>
+                  <p className="text-gray-500 text-xs">Average strength across all habits</p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-blue-400 font-bold text-xl">{weeklyConsistency}%</span>
-                  <span className="text-green-400 text-sm">+4%</span>
-                </div>
+                <span className="text-blue-400 font-bold text-xl">{weeklyConsistency}%</span>
               </div>
               <div className="flex items-end gap-3 h-32">
                 {weekDays.map((day, i) => {
@@ -142,11 +183,7 @@ function Habits() {
                     <div key={day} className="flex-1 flex flex-col items-center gap-2">
                       <div
                         className="w-full rounded-t-lg"
-                        style={{
-                          height: `${height}%`,
-                          background: i === 1 ? '#22d3ee' : '#3b82f6',
-                          opacity: i > 4 ? 0.5 : 1
-                        }}
+                        style={{ height: `${height}%`, background: i === 1 ? '#22d3ee' : '#3b82f6', opacity: i > 4 ? 0.5 : 1 }}
                       ></div>
                       <span className="text-gray-500 text-xs">{day}</span>
                     </div>
@@ -156,82 +193,84 @@ function Habits() {
             </div>
           </div>
 
-          {/* Right Panel */}
-          <div className="w-56 space-y-4">
-
-            {/* Top Performer */}
-            <div className="bg-blue-900 border border-blue-700 rounded-2xl p-4">
-              <div className="w-8 h-8 bg-blue-700 rounded-lg mb-3"></div>
-              <p className="text-blue-300 text-xs font-semibold mb-1">Top Performer</p>
-              <h3 className="text-white font-bold">{topPerformer.name}</h3>
-              <div className="flex items-center justify-between mt-2">
-                <span className="text-blue-300 text-xs">Current Streak</span>
-                <span className="text-white font-bold text-sm">{topPerformer.streak} Days</span>
+          <div className="w-full lg:w-64 space-y-4">
+            {topPerformer && (
+              <div className="bg-blue-900 border border-blue-700 rounded-2xl p-4">
+                <p className="text-blue-300 text-xs font-semibold mb-1">Top Performer</p>
+                <h3 className="text-white font-bold">{topPerformer.name}</h3>
+                <div className="flex items-center justify-between mt-2">
+                  <span className="text-blue-300 text-xs">Current Streak</span>
+                  <span className="text-white font-bold text-sm">{topPerformer.streak} Days</span>
+                </div>
               </div>
-            </div>
-
-            {/* Upcoming Focus */}
+            )}
             <div className="bg-[#161b22] border border-gray-800 rounded-2xl p-4">
-              <p className="text-gray-500 text-xs font-semibold uppercase mb-3">Upcoming Focus</p>
+              <p className="text-gray-500 text-xs font-semibold uppercase mb-3">Quick Stats</p>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-white text-sm font-medium">Hydration Check</p>
-                    <p className="text-gray-500 text-xs">Next reminder: 3:30 PM</p>
-                  </div>
-                  <div className="w-5 h-5 border-2 border-gray-600 rounded-full"></div>
+                  <span className="text-gray-400 text-sm">Total Habits</span>
+                  <span className="text-white font-bold">{habits.length}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-white text-sm font-medium">Strength Training</p>
-                    <p className="text-gray-500 text-xs">Schedule: 5:00 PM</p>
-                  </div>
-                  <div className="w-5 h-5 border-2 border-gray-600 rounded-full"></div>
+                  <span className="text-gray-400 text-sm">Best Streak</span>
+                  <span className="text-white font-bold">{topPerformer ? topPerformer.streak : 0} days</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-400 text-sm">Avg Strength</span>
+                  <span className="text-white font-bold">{weeklyConsistency}%</span>
                 </div>
               </div>
             </div>
           </div>
         </div>
-        {showModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
-            <div className="bg-[#161b22] border border-gray-700 rounded-2xl p-6 w-full max-w-sm">
-              <div className="flex items-center justify-between mb-5">
-                <h2 className="text-white font-bold text-lg">New Habit</h2>
-                <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-white text-xl">×</button>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-gray-400 text-xs uppercase font-semibold mb-1 block">Habit Name</label>
-                  <input type="text" value={newHabit.name} onChange={e => setNewHabit({...newHabit, name: e.target.value})} placeholder="e.g. Morning Run" className="w-full bg-[#0d1117] border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 text-sm transition" />
-                </div>
-                <div>
-                  <label className="text-gray-400 text-xs uppercase font-semibold mb-1 block">Category</label>
-                  <select value={newHabit.category} onChange={e => setNewHabit({...newHabit, category: e.target.value})} className="w-full bg-[#0d1117] border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm transition">
-                    <option>Health</option>
-                    <option>Mindfulness</option>
-                    <option>Learning</option>
-                    <option>Fitness</option>
-                    <option>Career</option>
-                    <option>Personal</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-gray-400 text-xs uppercase font-semibold mb-1 block">Goal</label>
-                  <select value={newHabit.goal} onChange={e => setNewHabit({...newHabit, goal: e.target.value})} className="w-full bg-[#0d1117] border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 text-sm transition">
-                    <option>Daily</option>
-                    <option>3x Weekly</option>
-                    <option>Weekly</option>
-                  </select>
-                </div>
-                <div className="flex gap-3 pt-1">
-                  <button onClick={addHabit} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg text-sm font-semibold transition">Add Habit</button>
-                  <button onClick={() => setShowModal(false)} className="flex-1 border border-gray-700 text-gray-400 hover:border-gray-500 py-2.5 rounded-lg text-sm transition">Cancel</button>
-                </div>
-              </div>
+      </div>
+
+      {showModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+          <div className="bg-[#161b22] border border-gray-700 rounded-2xl p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">{isEditing ? 'Edit Habit' : 'New Habit'}</h2>
+              <button onClick={() => { setShowModal(false); setIsEditing(false); }} className="text-gray-500 hover:text-white">×</button>
+            </div>
+            <div className="space-y-4">
+              <input
+                type="text"
+                placeholder="Habit name (e.g. Morning Meditation)"
+                value={newHabit.name}
+                onChange={(e) => setNewHabit({ ...newHabit, name: e.target.value })}
+                className="w-full bg-[#0d1117] border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500"
+              />
+              <select
+                value={newHabit.category}
+                onChange={(e) => setNewHabit({ ...newHabit, category: e.target.value })}
+                className="w-full bg-[#0d1117] border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500"
+              >
+                <option>Health</option>
+                <option>Mindfulness</option>
+                <option>Learning</option>
+                <option>Fitness</option>
+                <option>Career</option>
+                <option>Personal</option>
+              </select>
+              <select
+                value={newHabit.goal}
+                onChange={(e) => setNewHabit({ ...newHabit, goal: e.target.value })}
+                className="w-full bg-[#0d1117] border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500"
+              >
+                <option>Daily</option>
+                <option>3x Weekly</option>
+                <option>Weekly</option>
+              </select>
+              <button
+                onClick={saveHabit}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold transition"
+              >
+                {isEditing ? 'Save Changes' : 'Add Habit'}
+              </button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
